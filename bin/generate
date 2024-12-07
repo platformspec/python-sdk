@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+
+import sys, os
+import yaml
+from pathlib import Path
+from tempfile import NamedTemporaryFile
+
+from datamodel_code_generator.__main__ import Exit, main
+
+CRDS_PATH = Path('crds/')
+OUTPUT_PATH = Path('platformspec/api')
+
+if __name__ == '__main__':
+    for crd in list(CRDS_PATH.glob('**/*.yaml')):
+        with open(crd) as crd_file:
+            # Extract jsonschema from CRD
+            crd_data = yaml.safe_load(crd_file)
+            crd_kind = crd_data['spec']['names']['kind']
+            crd_group = crd_data['spec']['group']
+            crd_plural = crd_data['spec']['names']['plural']
+            crd_version = crd_data['spec']['versions'][0]['name']
+            crd_schema = crd_data['spec']['versions'][0]['schema']['openAPIV3Schema']
+
+            # Set default values for the model
+            crd_schema['properties']['apiVersion']['default'] = f'{crd_group}/{crd_version}'
+            crd_schema['properties']['kind']['default'] = crd_kind
+
+            # Scaffold outputs
+            output_file = Path(OUTPUT_PATH) / crd_version / f'{crd_kind}.py'
+            Path.mkdir(output_file.parent, exist_ok=True)
+
+            # Generate code
+            with NamedTemporaryFile(delete=True) as tmp_file:
+                tmp_file.write(yaml.dump(crd_schema, default_flow_style=False).encode())
+                tmp_file.flush()
+                print(output_file)
+                return_code = main(
+                    [
+                        '--input',
+                        str(tmp_file.name),
+                        '--input-file-type',
+                        'jsonschema',
+                        '--class-name',
+                        crd_kind,
+                        '--output',
+                        str(output_file),
+                        '--output-model-type',
+                        'pydantic_v2.BaseModel'
+                    ]
+                )
